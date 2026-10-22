@@ -3,6 +3,7 @@
 // en déléguant chaque tâche à un objet reçu par le constructeur.
 import { computeStats } from './domain/salesStats.js';
 import { EmailAddress } from './domain/EmailAddress.js';
+import { PRO_PLAN } from './domain/ReportPlan.js';
 import { FormatterRegistry } from './formatters/FormatterRegistry.js';
 import { CsvFormatter } from './formatters/CsvFormatter.js';
 import { HtmlFormatter } from './formatters/HtmlFormatter.js';
@@ -23,11 +24,13 @@ export class ReportService {
     orders = new JsonFileOrderRepository(new URL('./orders.json', import.meta.url)),
     mailer = SmtpMailer.fromEnv(),
     logger = new ConsoleLogger(),
+    plan = PRO_PLAN,
   } = {}) {
     this.formatters = formatters;
     this.orders = orders;
     this.mailer = mailer;
     this.logger = logger;
+    this.plan = plan; // publique : l'appelant peut demander service.plan.allowsFormat('html')
   }
 
   // Provisoire : les tests lisent encore service.outbox ; ils liront mailer.outbox à l'extraction 5
@@ -36,6 +39,7 @@ export class ReportService {
   }
 
   generate(month, format, recipient) {
+    this.plan.check(format, recipient);
     const stats = computeStats(this.orders.all(), month);
     const output = this.formatters.get(format).format(stats);
     this.logger.info(`rapport ${month} (${format}) : ${stats.count} commande(s)`);
@@ -45,14 +49,5 @@ export class ReportService {
       this.mailer.send({ to: to.value, subject: `Rapport des ventes ${month}`, body: output });
     }
     return output;
-  }
-}
-
-// Variante « offre gratuite » : elle refuse ce que la classe parente accepte (corrigée à l'extraction 4)
-export class FreeReportService extends ReportService {
-  generate(month, format, recipient) {
-    if (format !== 'csv') throw new Error('Format réservé aux comptes Pro');
-    if (recipient) throw new Error('Envoi par e-mail réservé aux comptes Pro');
-    return super.generate(month, format);
   }
 }
