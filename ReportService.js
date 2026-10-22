@@ -1,69 +1,54 @@
-// TP 3 · CODE DE DÉPART (à refactorer). Rapport mensuel des ventes de ShopLite.
-// Ce code fonctionne, mais il viole plusieurs principes SOLID. Ne le réécrivez pas d'un bloc :
-// figez d'abord son comportement par des tests, puis extrayez les responsabilités une par une.
-import fs from 'node:fs';
+// TP 3 · Rapport mensuel des ventes de ShopLite, en cours de refactoring.
+// ReportService orchestre : il lit, calcule, met en forme, journalise et envoie
+// en déléguant chaque tâche à un objet reçu par le constructeur.
 import { computeStats } from './domain/salesStats.js';
+import { EmailAddress } from './domain/EmailAddress.js';
 import { FormatterRegistry } from './formatters/FormatterRegistry.js';
 import { CsvFormatter } from './formatters/CsvFormatter.js';
 import { HtmlFormatter } from './formatters/HtmlFormatter.js';
 import { JsonFormatter } from './formatters/JsonFormatter.js';
+import { JsonFileOrderRepository } from './infrastructure/JsonFileOrderRepository.js';
+import { SmtpMailer } from './infrastructure/SmtpMailer.js';
+import { ConsoleLogger } from './infrastructure/ConsoleLogger.js';
 
-// Registre par défaut, provisoire : il partira dans main.js (composition root) à l'extraction 5
+// Valeurs par défaut, provisoires : elles partiront dans main.js (composition root) à l'extraction 5
 const defaultFormatters = () => new FormatterRegistry()
   .register('csv', new CsvFormatter())
   .register('html', new HtmlFormatter())
   .register('json', new JsonFormatter());
 
 export class ReportService {
-  constructor({ formatters = defaultFormatters() } = {}) {
+  constructor({
+    formatters = defaultFormatters(),
+    orders = new JsonFileOrderRepository(new URL('./orders.json', import.meta.url)),
+    mailer = SmtpMailer.fromEnv(),
+    logger = new ConsoleLogger(),
+  } = {}) {
     this.formatters = formatters;
-    // Dépendances concrètes créées ici : impossible de les remplacer dans un test
-    this.dbFile = new URL('./orders.json', import.meta.url);
-    this.smtp = {
-      host: 'smtp.shoplite.fr',
-      port: 587,
-      user: 'reports',
-      password: 'Sh0pL1te!',
-    };
-    this.outbox = []; // e-mails « envoyés » (simulation du serveur SMTP)
-    this.history = [];
+    this.orders = orders;
+    this.mailer = mailer;
+    this.logger = logger;
   }
 
-  loadOrders() {
-    const raw = fs.readFileSync(this.dbFile, 'utf8');
-    return JSON.parse(raw);
+  // Provisoire : les tests lisent encore service.outbox ; ils liront mailer.outbox à l'extraction 5
+  get outbox() {
+    return this.mailer.outbox;
   }
 
   generate(month, format, recipient) {
-    // 1. Lecture des données
-    const orders = this.loadOrders();
-
-    // 2. Calculs métier : délégués à la fonction pure computeStats
-    const stats = computeStats(orders, month);
-
-    // 3. Mise en forme : déléguée au formatter du registre (plus aucun if sur le format)
+    const stats = computeStats(this.orders.all(), month);
     const output = this.formatters.get(format).format(stats);
+    this.logger.info(`rapport ${month} (${format}) : ${stats.count} commande(s)`);
 
-    // 4. Journalisation
-    const line = `[${new Date().toISOString()}] rapport ${month} (${format}) : ${stats.count} commande(s)`;
-    console.log(line);
-    this.history.push(line);
-
-    // 5. Envoi par e-mail
     if (recipient) {
-      if (!recipient.includes('@')) throw new Error(`Adresse invalide : ${recipient}`);
-      this.outbox.push({
-        via: `${this.smtp.host}:${this.smtp.port}`,
-        to: recipient,
-        subject: `Rapport des ventes ${month}`,
-        body: output,
-      });
+      const to = new EmailAddress(recipient);
+      this.mailer.send({ to: to.value, subject: `Rapport des ventes ${month}`, body: output });
     }
     return output;
   }
 }
 
-// Variante « offre gratuite » : elle refuse ce que la classe parente accepte
+// Variante « offre gratuite » : elle refuse ce que la classe parente accepte (corrigée à l'extraction 4)
 export class FreeReportService extends ReportService {
   generate(month, format, recipient) {
     if (format !== 'csv') throw new Error('Format réservé aux comptes Pro');
