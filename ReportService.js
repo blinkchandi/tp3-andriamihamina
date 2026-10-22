@@ -3,9 +3,20 @@
 // figez d'abord son comportement par des tests, puis extrayez les responsabilités une par une.
 import fs from 'node:fs';
 import { computeStats } from './domain/salesStats.js';
+import { FormatterRegistry } from './formatters/FormatterRegistry.js';
+import { CsvFormatter } from './formatters/CsvFormatter.js';
+import { HtmlFormatter } from './formatters/HtmlFormatter.js';
+import { JsonFormatter } from './formatters/JsonFormatter.js';
+
+// Registre par défaut, provisoire : il partira dans main.js (composition root) à l'extraction 5
+const defaultFormatters = () => new FormatterRegistry()
+  .register('csv', new CsvFormatter())
+  .register('html', new HtmlFormatter())
+  .register('json', new JsonFormatter());
 
 export class ReportService {
-  constructor() {
+  constructor({ formatters = defaultFormatters() } = {}) {
+    this.formatters = formatters;
     // Dépendances concrètes créées ici : impossible de les remplacer dans un test
     this.dbFile = new URL('./orders.json', import.meta.url);
     this.smtp = {
@@ -28,36 +39,13 @@ export class ReportService {
     const orders = this.loadOrders();
 
     // 2. Calculs métier : délégués à la fonction pure computeStats
-    const { count, revenueHT, vat, revenueTTC, average, byCategory } = computeStats(orders, month);
+    const stats = computeStats(orders, month);
 
-    // 3. Mise en forme : un if par format
-    let output;
-    if (format === 'csv') {
-      output = 'categorie;montant_ht\n';
-      for (const c of Object.keys(byCategory).sort())
-        output += `${c};${byCategory[c]}\n`;
-      output += `TOTAL HT;${revenueHT}\nTVA;${vat}\nTOTAL TTC;${revenueTTC}\n`;
-    } else if (format === 'html') {
-      output = `<h1>Ventes ${month}</h1><p>${count} commande(s), panier moyen ${average} €</p><ul>`;
-      for (const c of Object.keys(byCategory).sort())
-        output += `<li>${c} : ${byCategory[c]} €</li>`;
-      output += `</ul><p><b>Total TTC : ${revenueTTC} €</b></p>`;
-    } else if (format === 'json') {
-      output = JSON.stringify({
-        month,
-        count,
-        revenueHT,
-        vat,
-        revenueTTC,
-        average,
-        byCategory,
-      });
-    } else {
-      throw new Error(`Format non supporté : ${format}`);
-    }
+    // 3. Mise en forme : déléguée au formatter du registre (plus aucun if sur le format)
+    const output = this.formatters.get(format).format(stats);
 
     // 4. Journalisation
-    const line = `[${new Date().toISOString()}] rapport ${month} (${format}) : ${count} commande(s)`;
+    const line = `[${new Date().toISOString()}] rapport ${month} (${format}) : ${stats.count} commande(s)`;
     console.log(line);
     this.history.push(line);
 
