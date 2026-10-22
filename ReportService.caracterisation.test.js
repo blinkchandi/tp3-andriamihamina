@@ -45,3 +45,9 @@ test('envoi par e-mail : un message dans la boîte d’envoi', () => {
 test('adresse e-mail invalide refusée', () => {
   assert.throws(() => new ReportService().generate('2026-09', 'csv', 'direction'), /Adresse invalide/);
 });
+
+// 8e test ajouté : sortie actuelle du code relevée telle quelle (CMD-105 seule, 3 × 19 = 57)
+test('CSV d’octobre 2026', () => {
+  assert.equal(new ReportService().generate('2026-10', 'csv'),
+    'categorie;montant_ht\ninformatique;57\nTOTAL HT;57\nTVA;11.4\nTOTAL TTC;68.4\n');
+});
