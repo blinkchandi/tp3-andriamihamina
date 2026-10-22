@@ -2,6 +2,7 @@
 // Ce code fonctionne, mais il viole plusieurs principes SOLID. Ne le réécrivez pas d'un bloc :
 // figez d'abord son comportement par des tests, puis extrayez les responsabilités une par une.
 import fs from 'node:fs';
+import { computeStats } from './domain/salesStats.js';
 
 export class ReportService {
   constructor() {
@@ -24,24 +25,10 @@ export class ReportService {
 
   generate(month, format, recipient) {
     // 1. Lecture des données
-    const orders = this.loadOrders().filter(o => o.date.startsWith(month));
+    const orders = this.loadOrders();
 
-    // 2. Calculs métier
-    let revenueHT = 0;
-    let count = 0;
-    const byCategory = {};
-    for (const o of orders) {
-      if (o.status === 'CANCELLED') continue;
-      count++;
-      for (const l of o.lines) {
-        const amount = l.qty * l.unitPrice;
-        revenueHT += amount;
-        byCategory[l.category] = (byCategory[l.category] || 0) + amount;
-      }
-    }
-    const vat = Math.round(revenueHT * 0.2 * 100) / 100;
-    const revenueTTC = revenueHT + vat;
-    const average = count === 0 ? 0 : Math.round((revenueHT / count) * 100) / 100;
+    // 2. Calculs métier : délégués à la fonction pure computeStats
+    const { count, revenueHT, vat, revenueTTC, average, byCategory } = computeStats(orders, month);
 
     // 3. Mise en forme : un if par format
     let output;
